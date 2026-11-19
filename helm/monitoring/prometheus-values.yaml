@@ -1,9 +1,9 @@
-
 alertmanager:
   enabled: false
 
 grafana:
   enabled: true
+
   persistence:
     enabled: true
     type: sts
@@ -11,6 +11,28 @@ grafana:
     accessModes:
       - ReadWriteOnce
     size: 5Gi
+
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      isDefault: false
+      editable: true
+
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL 
+
+  extraConfigmapMounts:
+    - name: grafana-alerting-provisioning
+      mountPath: /etc/grafana/provisioning/alerting
+      configMap: grafana-alerting-provisioning
+      readOnly: true       
 
 prometheus:
   enabled: true
