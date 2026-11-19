@@ -1,0 +1,43 @@
+replicaCount: 2
+
+logLevel: info
+
+ui:
+  message: "DasMeta DevOps Demo"
+
+image:
+  repository: ghcr.io/stefanprodan/podinfo
+  tag: 6.17.0
+  pullPolicy: IfNotPresent
+
+service:
+  enabled: true
+  type: ClusterIP
+  httpPort: 9898
+  externalPort: 9898
+  metricsPort: 9797
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+podDisruptionBudget:
+  maxUnavailable: 1
+
+hpa:
+  enabled: false
+
+serviceMonitor:
+  enabled: false
+
+probes:
+  readiness:
+    initialDelaySeconds: 1
+    periodSeconds: 10
+  liveness:
+    initialDelaySeconds: 1
+    periodSeconds: 10
