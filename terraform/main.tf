@@ -124,3 +124,27 @@ resource "helm_release" "monitoring_dashboards" {
   ]
 }
 
+
+# AWS Load Balancer Controller
+resource "helm_release" "aws_load_balancer_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  version    = "1.14.0"
+  namespace  = "kube-system"
+
+  values = [
+    yamlencode({
+      clusterName = var.cluster_name
+      region      = var.aws_region
+      vpcId       = module.vpc.vpc_id
+
+      serviceAccount = {
+        create = true
+        name   = "aws-load-balancer-controller"
+      }
+    })
+  ]
+
+  depends_on = [module.eks]
+}
