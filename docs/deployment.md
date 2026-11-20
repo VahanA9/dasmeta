@@ -1,20 +1,18 @@
 # Deployment Guide
 
-This document describes the requirements and steps for deploying the AWS EKS Platform using Terraform and Helm.
-
 ## 1. Prerequisites
 
-Make sure the following tools are installed:
+Required tools:
 
 | Tool | Purpose |
 |---|---|
-| AWS CLI | Manage and authenticate with AWS |
-| Terraform | Provision AWS infrastructure |
-| kubectl | Interact with Kubernetes |
-| Helm | Deploy Kubernetes applications |
-| Git | Clone and manage the repository |
+| AWS CLI | AWS authentication and management |
+| Terraform (>= 1.5.7) | Infrastructure and platform management |
+| kubectl | Kubernetes management |
+| Helm | Kubernetes package management |
+| Git | Source control |
 
-Verify the installations:
+Verify installations:
 
 ```bash
 aws --version
@@ -24,207 +22,215 @@ helm version
 git --version
 ```
 
-An AWS account with sufficient permissions to create and manage the required resources is also required.
-
-## 2. AWS Access Configuration
-
-Configure AWS credentials:
+Configure AWS credentials and verify access:
 
 ```bash
 aws configure
-```
-
-Verify the current AWS identity:
-
-```bash
 aws sts get-caller-identity
 ```
 
-The project uses the `us-east-1` region.
+The deployment uses AWS region `us-east-1`. Ensure your AWS identity has the required permissions to manage AWS resources, EKS, IAM, S3 state and Kubernetes workloads.
 
-Check the configured region:
+## 2. Terraform Backend
 
-```bash
-aws configure get region
-```
+Both projects use the same S3 bucket with separate state files.
 
-Make sure the AWS credentials have the required permissions.
+| Setting | Infrastructure | Platform |
+|---|---|---|
+| S3 Bucket | `terraform-dasmeta` | `terraform-dasmeta` |
+| State Key | `eks-infra/terraform.tfstate` | `eks-platform/terraform.tfstate` |
+| Region | `us-east-1` | `us-east-1` |
+| Encryption | Enabled | Enabled |
+| State Locking | S3 lockfile | S3 lockfile |
 
-## 3. Terraform Backend
+The S3 bucket must exist before running `terraform init`. The deployment identity must have access to the bucket and state objects.
 
-Terraform state is stored remotely in Amazon S3.
+**Important:** Preserve the backend bucket during cleanup.
 
-| Setting | Value |
-|---|---|
-| Bucket | `terraform-dasmeta` |
-| State Key | `eks-platform/terraform.tfstate` |
-| Encryption | Enabled |
-| Versioning | Enabled |
-| State Locking | S3 lockfile |
-
-The S3 bucket must exist before Terraform initialization.
-
-The AWS identity used for deployment must have access to the backend bucket.
-
-## 4. Initialize and Validate Terraform
-
-Clone the repository:
+## 3. Clone and Prepare the Repository
 
 ```bash
 git clone <repository-url>
 cd dasmeta
 ```
 
-Go to the Terraform directory:
+Format all Terraform configurations:
 
 ```bash
 cd terraform
-```
-
-Initialize Terraform:
-
-```bash
-terraform init
-```
-
-Format the Terraform files:
-
-```bash
 terraform fmt -recursive
 ```
 
-Validate the configuration:
+Each Terraform project must be initialized and validated independently.
+
+## 4. Deploy Infrastructure
+
+Navigate to the Infrastructure project:
 
 ```bash
+cd infrastructure
+terraform init
 terraform validate
 ```
 
-## 5. Plan and Apply
+Before deployment, ensure your current public IP is allowed by the configured `admin_cidr` variable.
 
-Before deployment, make sure the current public IP address is allowed by the configured EKS administrator CIDR (`admin_cidr`).
-
-Generate and review the execution plan:
+Review and deploy:
 
 ```bash
 terraform plan
-```
-
-Check which resources will be created, changed or destroyed.
-
-When the plan has been reviewed and approved, deploy the infrastructure:
-
-```bash
 terraform apply
 ```
 
-Terraform creates the required AWS resources, including:
+Infrastructure provisions:
 
-- VPC and subnets
-- NAT Gateway
-- EKS cluster
-- Managed node group
+- VPC, public/private subnets and NAT Gateway
+- Amazon EKS cluster and managed node group
 - EKS add-ons
-- IAM roles and Pod Identity associations
-- Kubernetes Helm releases
+- IAM roles, policies and Pod Identity associations
 
-**Cost warning:** AWS resources such as EKS, NAT Gateway, load balancers and EC2 instances may generate charges while running.
+Check the outputs:
 
-## 6. Configure kubectl
+```bash
+terraform output
+```
 
-After the EKS cluster is created, update the local kubeconfig:
+## 5. Configure Kubernetes Access
+
+Update kubeconfig:
 
 ```bash
 aws eks update-kubeconfig \
   --region us-east-1 \
-  --name <cluster-name>
+  --name dasmeta-eks
 ```
 
-Verify cluster access:
+Verify cluster connectivity:
 
 ```bash
 kubectl get nodes
+kubectl get storageclass
 ```
 
-Check the Kubernetes namespaces:
+The nodes should be in `Ready` state before deploying the Platform.
+
+## 6. Deploy Platform
+
+Navigate to the Platform project:
 
 ```bash
-kubectl get namespaces
+cd ../platform
+terraform init
+terraform validate
 ```
 
-The cluster should contain the `application` and `monitoring` namespaces.
+Review and deploy:
 
-## 7. Verify the Application
+```bash
+terraform plan
+terraform apply
+```
 
-Check the Podinfo deployment:
+Platform deploys:
+
+- AWS Load Balancer Controller
+- StorageClass
+- Podinfo application
+- Prometheus and Grafana
+- Loki and Grafana Alloy
+- Monitoring dashboards and alerting ConfigMaps
+
+Platform reads the EKS cluster information from the Infrastructure Terraform remote state.
+
+## 7. Verify Deployment
+
+Check application and monitoring workloads:
 
 ```bash
 kubectl get pods -n application
-```
-
-Check the Kubernetes service:
-
-```bash
-kubectl get svc -n application
-```
-
-Check the Ingress:
-
-```bash
 kubectl get ingress -n application
-```
-
-The AWS Load Balancer Controller should create an internet-facing Application Load Balancer for the Ingress.
-
-## 8. Verify Monitoring and Alerting
-
-Check monitoring components:
-
-```bash
 kubectl get pods -n monitoring
-```
-
-Check the services:
-
-```bash
 kubectl get svc -n monitoring
+kubectl get pvc -n monitoring
 ```
 
-Verify that Prometheus, Grafana, Loki and Alloy are running.
+Verify that application and monitoring Pods are healthy and persistent volume claims are `Bound`.
 
-To access Grafana locally, use port forwarding:
+The Podinfo Ingress should receive an internet-facing AWS Application Load Balancer address.
+
+### Local Access to Monitoring
+
+Run the required port-forward command in a separate terminal.
+
+| Component | Command | URL |
+|---|---|---|
+| Grafana | `kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80` | http://localhost:3000 |
+| Prometheus | `kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090` | http://localhost:9090 |
+| Alertmanager | `kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-alertmanager 9093:9093` | http://localhost:9093 |
+| Loki | `kubectl port-forward -n monitoring svc/loki 3100:3100` | http://localhost:3100 |
+
+Verify Grafana data sources, dashboards and the High CPU Usage and High Memory Usage alert rules.
+
+The Slack contact point currently uses a placeholder webhook URL; real Slack notifications are not configured.
+
+## 8. Troubleshooting
+
+**Pod status and events:**
 
 ```bash
-kubectl port-forward \
-  svc/<grafana-service-name> \
-  3000:80 \
-  -n monitoring
+kubectl get pods -A
+kubectl describe pod <pod-name> -n <namespace>
+kubectl logs <pod-name> -n <namespace>
 ```
 
-Then open:
+**Helm release status:**
 
-```text
-http://localhost:3000
+```bash
+helm list -A
+helm status <release-name> -n <namespace>
+helm history <release-name> -n <namespace>
 ```
 
-Confirm the exact Grafana service name and port with `kubectl get svc -n monitoring`.
+**AWS Load Balancer Controller:**
 
-In Grafana, check that the following alert rules are configured:
+```bash
+kubectl get pods -n kube-system | grep aws-load-balancer
+kubectl get endpoints aws-load-balancer-webhook-service -n kube-system
+kubectl logs -n kube-system deployment/aws-load-balancer-controller --tail=100
+```
 
-- High CPU Usage
-- High Memory Usage
-
-The Slack contact point currently uses a placeholder webhook URL. Real Slack notifications are not configured.
+Terraform manages the Platform Helm releases. Prefer resolving release issues through Terraform rather than manually uninstalling releases.
 
 ## 9. Cleanup
 
-When the environment is no longer needed, Terraform can remove the resources:
+**Always destroy Platform before Infrastructure.**
+
+### 9.1. Destroy Platform
 
 ```bash
+cd terraform/platform
+terraform plan -destroy
 terraform destroy
 ```
 
-Review the destruction plan carefully before confirming.
+Wait for the Helm releases and AWS load balancers created by the controller to be cleaned up.
 
-The Terraform state backend bucket is managed separately and may remain after the infrastructure is destroyed.
+### 9.2. Destroy Infrastructure
 
-Make sure that no resources or data you need will be deleted before running this command.
+```bash
+cd ../infrastructure
+terraform plan -destroy
+terraform destroy
+```
+
+This removes the Terraform-managed AWS infrastructure, including EKS, networking and node groups.
+
+**Important:**
+
+- Never destroy Infrastructure before Platform.
+- Check that associated AWS load balancers have been removed.
+- Review destruction plans before confirming.
+- Preserve the S3 backend bucket `terraform-dasmeta`.
+- Persistent EBS volumes and other retained resources may require separate cleanup and can continue generating charges.
+
+AWS resources such as EKS, NAT Gateway, EC2 instances, load balancers and EBS volumes may incur costs while running.
