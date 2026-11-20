@@ -1,0 +1,6 @@
+
+apiVersion: v2
+name: monitoring-dashboards
+description: Grafana dashboard ConfigMaps
+type: application
+version: 1.0.0

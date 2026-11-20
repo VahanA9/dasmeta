@@ -1,0 +1,63 @@
+replicaCount: 2
+
+logLevel: info
+
+ui:
+  message: "DasMeta DevOps Demo"
+
+image:
+  repository: ghcr.io/stefanprodan/podinfo
+  tag: 6.17.0
+  pullPolicy: IfNotPresent
+
+service:
+  enabled: true
+  type: ClusterIP
+  httpPort: 9898
+  externalPort: 9898
+  metricsPort: 9797
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+podDisruptionBudget:
+  maxUnavailable: 1
+
+hpa:
+  enabled: false
+
+serviceMonitor:
+  enabled: false
+
+probes:
+  readiness:
+    initialDelaySeconds: 1
+    periodSeconds: 10
+  liveness:
+    initialDelaySeconds: 1
+    periodSeconds: 10
+
+ingress:
+  enabled: true
+  className: alb
+
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    alb.ingress.kubernetes.io/success-codes: "200"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+
+  tls: []
